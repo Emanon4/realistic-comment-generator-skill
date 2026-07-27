@@ -1,0 +1,6 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.json
+*.xlsx
+!references/样例-金样-40条.xlsx
