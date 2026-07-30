@@ -450,10 +450,12 @@ def report(comments, bs):
 
     batches = [comments[i:i + bs] for i in range(0, n, bs)]
     single = len(batches) <= 1
-    print("  【逐批自检】(判达标以此为准，配额按每批 %d 条定义)" % bs)
+    tail_note = ("合格尾批 10–%d 条按比例判定" % (bs - 1)) if bs > MIN_BATCH_SIZE else "每批固定 10 条"
+    print("  【逐批自检】(判达标以此为准；完整批 %d 条，%s)" % (bs, tail_note))
     for bi, batch in enumerate(batches, 1):
-        if len(batch) < bs and not single:
-            print("    第%d批：%d 条（末批不满，条数完整性另报，跳过三轴判定）" % (bi, len(batch)))
+        if len(batch) < MIN_BATCH_SIZE and not single:
+            print("    第%d批：%d 条（尾批不足 %d 条，条数完整性另报，跳过三轴判定）"
+                  % (bi, len(batch), MIN_BATCH_SIZE))
             continue
         bprobs = analyze(batch)[1]
         if bprobs:
@@ -536,14 +538,18 @@ def main():
     if sanitized:
         print("  ⚠ 输入有 %d 条含 XML 非法控制字符，已清理" % sanitized)
 
-    # 条数完整性自查：空表 / 末列不满 batch_size（避免"看似对齐实则缺角"的表）
+    # 条数完整性自查：完整批优先保持 batch_size；唯一尾批可为 10..batch_size-1。
+    # 这让 150 条按 7×20+10 落表，不必为了列齐而退成 10×15。
     bs = data["batch_size"]
     integrity = []
     if n == 0:
         integrity.append("comments 为空，生成的是一张没有评论的空表")
-    elif n % bs != 0:
-        integrity.append("共 %d 条，非批次大小 %d 的整数倍，最后一批只有 %d 条（末列不满）"
-                         % (n, bs, n % bs))
+    elif n > bs and 0 < n % bs < MIN_BATCH_SIZE:
+        integrity.append("共 %d 条，按目标批次 %d 切分后尾批只有 %d 条（<%d）；请调整总数或另定批次大小"
+                         % (n, bs, n % bs, MIN_BATCH_SIZE))
+    elif n > bs and n % bs:
+        print("  ✓ 批次优先保持 %d 条，最后一批 %d 条（允许 10–%d 条尾批）"
+              % (bs, n % bs, bs - 1))
     for m in integrity:
         print("  ⚠ " + m)
 

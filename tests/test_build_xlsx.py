@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import subprocess
 import sys
@@ -21,6 +22,31 @@ def run_fixture(name, output, *flags):
     )
 
 
+def run_data(data, input_path, output, *flags):
+    with open(input_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    return subprocess.run(
+        [sys.executable, SCRIPT, input_path, output, *flags],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+GOOD_TAIL_10 = [
+    "真清爽",
+    "四屏压成一屏后，手指不用每天在图标堆里反复绕路好几遍了。",
+    "九个常用的刚刚好",
+    "微信和相机也算在这九个里面吗？",
+    "红点退退",
+    "资源库搜索真香！",
+    "首页少一屏脑子也跟着安静了一点点",
+    "我先试三天…",
+    "确实会忘",
+    "以前解锁只是回消息，结果总被别的图标拐走半天才回来。",
+]
+
+
 class BuildXlsxTests(unittest.TestCase):
     def test_legacy_golden_fixture_remains_reproducible(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -37,6 +63,28 @@ class BuildXlsxTests(unittest.TestCase):
             self.assertTrue(os.path.exists(output))
             with zipfile.ZipFile(output, "r") as workbook:
                 self.assertIsNone(workbook.testzip())
+
+    def test_ten_comment_tail_passes_with_target_batch_size_twenty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(FIXTURES, "good-calibration.json"), encoding="utf-8") as f:
+                data = json.load(f)
+            data["comments"].extend(GOOD_TAIL_10)
+            output = os.path.join(tmp, "good-tail.xlsx")
+            result = run_data(data, os.path.join(tmp, "input.json"), output, "--check")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("最后一批 10 条", result.stdout + result.stderr)
+            self.assertTrue(os.path.exists(output))
+
+    def test_tail_shorter_than_ten_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(FIXTURES, "good-calibration.json"), encoding="utf-8") as f:
+                data = json.load(f)
+            data["comments"].extend(GOOD_TAIL_10[:5])
+            output = os.path.join(tmp, "bad-tail.xlsx")
+            result = run_data(data, os.path.join(tmp, "input.json"), output, "--check")
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("尾批只有 5 条", result.stdout + result.stderr)
+            self.assertFalse(os.path.exists(output))
 
     def test_failed_check_does_not_create_output(self):
         with tempfile.TemporaryDirectory() as tmp:
