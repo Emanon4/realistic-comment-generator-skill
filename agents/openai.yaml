@@ -1,4 +1,4 @@
 interface:
   display_name: "水评生成"
   short_description: "根据短视频脚本生成参差自然、可导出表格的自有账号互动评论"
-  default_prompt: "使用 $realistic-comment-generator 根据这段短视频脚本生成 200 条自然参差的评论并导出表格。"
+  default_prompt: "使用 $realistic-comment-generator 根据这段短视频脚本先生成 20 条校准评论，通过质检后导出表格。"

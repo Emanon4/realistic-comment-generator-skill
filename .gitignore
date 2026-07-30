@@ -4,3 +4,4 @@ __pycache__/
 *.json
 *.xlsx
 !references/样例-金样-40条.xlsx
+!tests/fixtures/*.json
