@@ -17,6 +17,7 @@ build_xlsx.py —— 把生成好的评论写成「对齐蒸汽电波参考表�
   "order_date":   "",                  # 下单日期，纯文本，可留空
   "video_link":   "",                  # 默认始终留空，由用户发布后自己补；脚本正文即使带链接也别塞进来
   "batch_size":   20,                  # 每批次多少条，默认 20
+  "review_batch_size": 10,             # 新流程每10条复查；省略兼容旧输入
   "comments":     ["评论1", "评论2", ...]    # 扁平列表，脚本自动切成 batch_size 条一批
 }
 
@@ -468,6 +469,26 @@ def report(comments, bs):
     return problems
 
 
+def review_batches(comments, size):
+    """复查生成小批的形式分布，不证明语义自然或曾按顺序审读。"""
+    problems = []
+    print("  【生成小批复查】每 %d 条；自然度仍需逐条审读" % size)
+    for start in range(0, len(comments), size):
+        batch = comments[start:start + size]
+        label = "生成小批%d" % (start // size + 1)
+        if len(batch) < size:
+            print("    %s：余下 %d 条，仅做所属表格列校验，需逐条审读" % (label, len(batch)))
+            continue
+        batch_problems = analyze(batch)[1]
+        for problem in batch_problems:
+            message = "%s · %s" % (label, problem)
+            print("    ⚠ " + message)
+            problems.append(message)
+        if not batch_problems:
+            print("    %s ✓（形式检查）" % label)
+    return problems
+
+
 def prepare_data(data):
     """校验输入结构并返回清洗后的 data、跳过空评论数、XML 字符清洗数。"""
     if not isinstance(data, dict):
@@ -480,6 +501,10 @@ def prepare_data(data):
         raise ValueError("batch_size 必须是整数")
     if bs < MIN_BATCH_SIZE or bs > MAX_BATCH_SIZE:
         raise ValueError("batch_size 必须在 %d—%d 之间" % (MIN_BATCH_SIZE, MAX_BATCH_SIZE))
+    if "review_batch_size" in data:
+        review_size = data["review_batch_size"]
+        if type(review_size) is not int or review_size != 10:
+            raise ValueError("review_batch_size 必须是整数 10；旧输入可省略此字段")
 
     comments = []
     dropped = 0
@@ -556,6 +581,8 @@ def main():
     problems = []
     if "--stats" in flags or "--check" in flags:
         problems = report(comments, bs)
+        if "review_batch_size" in data:
+            problems += review_batches(comments, data["review_batch_size"])
 
     if "--check" in flags:
         problems = integrity + problems
@@ -563,7 +590,7 @@ def main():
             print("参差自检不达标：%d 项 → 退出码 2；目标文件未创建或覆盖"
                   % len(problems), file=sys.stderr)
             sys.exit(2)
-        print("参差自检通过 ✓（逐批均达标）")
+        print("参差自检通过 ✓（形式检查；自然度、观点与事实仍需逐条审读）")
 
     try:
         atomic_write_xlsx(data, out_path)

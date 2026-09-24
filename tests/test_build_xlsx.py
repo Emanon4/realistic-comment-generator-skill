@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,6 +49,68 @@ GOOD_TAIL_10 = [
 
 
 class BuildXlsxTests(unittest.TestCase):
+    def natural_data(self):
+        with open(os.path.join(FIXTURES, "good-natural-20.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_two_review_batches_export_as_one_twenty_row_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.natural_data()
+            output = os.path.join(tmp, "natural.xlsx")
+            result = run_data(data, os.path.join(tmp, "input.json"), output, "--check")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            with zipfile.ZipFile(output) as workbook:
+                sheet = ET.fromstring(workbook.read("xl/worksheets/sheet1.xml"))
+            ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+            cells = {c.attrib["r"]: c for c in sheet.findall(".//s:c", ns)}
+            actual = [cells["D%d" % r].find("s:is/s:t", ns).text for r in range(2, 22)]
+            self.assertEqual(actual, data["comments"])
+            self.assertFalse(any(ref.startswith("E") for ref in cells))
+            self.assertEqual(cells["B7"].find("s:v", ns).text, "20")
+
+    def test_single_ten_comment_preview_data_is_not_padded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.natural_data()
+            data["comments"] = data["comments"][:10]
+            output = os.path.join(tmp, "ten.xlsx")
+            result = run_data(data, os.path.join(tmp, "input.json"), output, "--check")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            with zipfile.ZipFile(output) as workbook:
+                sheet = ET.fromstring(workbook.read("xl/worksheets/sheet1.xml"))
+            ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+            refs = [c.attrib["r"] for c in sheet.findall(".//s:c", ns)]
+            self.assertEqual(sum(ref.startswith("D") for ref in refs), 11)
+
+    def test_bad_ten_comment_batch_cannot_hide_inside_good_twenty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.natural_data()
+            # The combined 20 has 35% bare endings and passes, but first 10 has only 30%.
+            data["comments"][0] += "！"
+            data["comments"][2] += "！"
+            output = os.path.join(tmp, "kept.xlsx")
+            legacy = dict(data)
+            legacy.pop("review_batch_size")
+            result = run_data(legacy, os.path.join(tmp, "legacy.json"), output, "--check")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            with open(output, "rb") as f:
+                original = f.read()
+            result = run_data(data, os.path.join(tmp, "input.json"), output, "--check")
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("生成小批1", result.stdout)
+            with open(output, "rb") as f:
+                self.assertEqual(f.read(), original)
+
+    def test_invalid_review_batch_size_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for invalid in (False, 10.0, "10", 20, None):
+                with self.subTest(value=invalid):
+                    data = self.natural_data()
+                    data["review_batch_size"] = invalid
+                    output = os.path.join(tmp, "invalid-review.xlsx")
+                    result = run_data(data, os.path.join(tmp, "input.json"), output, "--check")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertFalse(os.path.exists(output))
+
     def test_legacy_golden_fixture_remains_reproducible(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = os.path.join(tmp, "golden.xlsx")
